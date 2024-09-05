@@ -1,0 +1,186 @@
+---
+title: "Lab3"
+date: "2024-09-05"
+author: "Mayco"
+output: rmarkdown::github_document
+always_allow_html: true
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(readxl)
+library(plotly)
+library(webshot)
+```
+
+```{r imports, warning = FALSE, message = FALSE}
+#imports
+actors <- read_csv("actors.csv")
+directors_genres <- read_csv("directors_genres.csv")
+directors <- read_csv("directors.csv")
+movies_directors <- read_csv("movies_directors.csv")
+movies_genres <- read_csv("movies_genres.csv")
+movies <- read_csv("movies.csv")
+rol <- read_csv("roles.csv")
+
+```
+
+```{r warning = FALSE, message = FALSE}
+#PROBLEMA 1
+#Numero de pelis
+num_peliculas <- movies %>%
+  summarise(total_peliculas = n_distinct(id))
+num_peliculas
+
+#numero directores
+num_directores <- directors %>%
+  summarise(total_directores = n_distinct(id))
+
+num_directores
+```
+
+```{r warning = FALSE, message = FALSE}
+#PROBLEMA 2
+#Numero promedio de generos por director
+generos_por_director <- directors_genres %>%
+  group_by(director_id) %>%
+  summarise(num_generos = n_distinct(genre))
+
+promedio_generos_por_director <- generos_por_director %>%
+  summarise(promedio_generos = mean(num_generos))
+
+promedio_generos_por_director
+```
+
+```{r warning = FALSE, message = FALSE}
+#PROBLEMA 3
+
+#nuevo reporte por Role
+
+# Calcular el número de películas por rol
+peliculas_por_rol <- rol %>%
+  group_by(role) %>%
+  summarise(num_peliculas = n_distinct(movie_id))
+
+#actores x rol
+actores_por_rol <- rol %>%
+  left_join(actors, by = c("actor_id" = "id")) %>%
+  filter(gender == 'M') %>%  
+  group_by(role) %>%
+  summarise(num_actores = n_distinct(actor_id))
+
+# numero de actrices  por rol
+actrices_por_rol <- rol %>%
+  left_join(actors, by = c("actor_id" = "id")) %>%
+  filter(gender == 'F') %>%  
+  group_by(role) %>%
+  summarise(num_actrices = n_distinct(actor_id))
+
+# directores por rol
+directores_por_rol <- rol %>%
+  left_join(movies_directors, by = "movie_id") %>% 
+  group_by(role) %>%   
+  summarise(num_directores = n_distinct(director_id))
+
+reporte_por_rol <- peliculas_por_rol %>%
+  left_join(actores_por_rol, by = "role") %>%
+  left_join(actrices_por_rol, by = "role") %>%
+  left_join(directores_por_rol, by = "role")
+
+# Llenamos los valores NA con 0
+reporte_por_rol <- reporte_por_rol %>%
+  mutate(
+    num_actores = ifelse(is.na(num_actores), 0, num_actores),
+    num_actrices = ifelse(is.na(num_actrices), 0, num_actrices),
+    num_directores = ifelse(is.na(num_directores), 0, num_directores)
+  )
+
+reporte_por_rol
+```
+
+```{r warning = FALSE, message = FALSE}
+#PROBLEMA 4
+
+#Nuevo reporte por director
+
+# peliculas que ha dirigido
+peliculas_por_director <- movies_directors %>%
+  group_by(director_id) %>%
+  summarise(num_peliculas = n_distinct(movie_id))
+
+# actores que han trabajado con el director
+actores_por_director <- movies_directors %>%
+  left_join(rol, by = "movie_id") %>%
+  group_by(director_id) %>%
+  summarise(num_actores = n_distinct(actor_id))
+
+# género más común por director
+genero_comun_por_director <- movies_directors %>%
+  left_join(movies_genres, by = "movie_id") %>%
+  group_by(director_id, genre) %>%
+  summarise(num_peliculas_genero = n()) %>%
+  slice_max(num_peliculas_genero, n = 1, with_ties = FALSE) %>% #evita duplicados
+  ungroup() %>%
+  select(director_id, genre)
+
+# Unir todo
+reporte_directores <- directors %>%
+  left_join(peliculas_por_director, by = c("id" = "director_id")) %>%
+  left_join(actores_por_director, by = c("id" = "director_id")) %>%
+  left_join(genero_comun_por_director, by = c("id" = "director_id"))
+
+reporte_directores
+```
+
+```{r warning = FALSE, message = FALSE}
+#PROBLEMA 5
+
+#Distribución de “Roles” por Pelicula 
+hist_role_movie <- movies %>% 
+  left_join(rol, by = c("id" = "movie_id")) %>% ##hacemos un join que une movies con roles por movie ID
+  group_by(id) %>% ##primera agrupación para entender el número de roles por película
+  summarise(n_roles = n_distinct(role)) %>% 
+  ungroup() %>% ##utilizar esto cuando hago más de una agrupación o luego de usar un group_by.
+  group_by(n_roles) %>% ##segunda agrupación para entender el número de películas por el número de roles
+  summarise(n_movies = n()) %>% 
+  arrange(n_roles)
+
+
+hist_role_movie %>% 
+  mutate(
+    ratio_pct = round(100.0*n_movies/sum(n_movies),1), ##esto solo encuentra el % del total.
+    ratio_cumulative = cumsum(ratio_pct) ##esto suma los porcentajes para ver el % acumulado.
+  ) %>% 
+  head(15)
+
+# Distribución de “Roles” por Director
+
+# Calculamos la distribución de roles por director
+hist_role_director <- movies_directors %>%
+  left_join(rol, by = "movie_id") %>%  
+  group_by(director_id) %>%            
+  summarise(n_roles = n_distinct(role)) %>%  
+  ungroup() %>%
+  group_by(n_roles) %>%                
+  summarise(n_directors = n()) %>%      
+  arrange(n_roles)                     
+
+# Calculamos el porcentaje y el porcentaje acumulado
+hist_role_director <- hist_role_director %>%
+  mutate(
+    ratio_pct = round(100.0 * n_directors / sum(n_directors), 1),   
+    ratio_cumulative = cumsum(ratio_pct)                            
+  )
+
+# Imprimimos los primeros 15 registros
+print(hist_role_director %>% head(15))
+
+
+```
+
